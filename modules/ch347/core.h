@@ -48,8 +48,8 @@
 #define CH347_I2C_FAST_SPEED 2	   /* fast rate 400KHz */
 #define CH347_I2C_HIGH_SPEED 3	   /* high rate 750KHz */
 
-#define CH347_I2C_WRITE_MAX_LENGTH 0x3F
-#define CH347_I2C_READ_MAX_LENGTH 0x3F
+#define CH347_I2C_WRITE_MAX_LENGTH 0x20
+#define CH347_I2C_READ_MAX_LENGTH 0x20
 
 #define CH347_CMD_I2C_STREAM 0xAA
 #define CH347_CMD_I2C_STM_STA 0x74
@@ -84,6 +84,8 @@ struct ch347_gpio_regs
 	} pin[CH347_GPIO_NUM_PINS];
 };
 
+#pragma pack()
+
 /* device specific structure */
 struct ch347_device
 {
@@ -91,7 +93,7 @@ struct ch347_device
 	int usb_id;					/* usb id */
 	struct usb_device *usb_dev; /* usb device */
 	struct usb_interface *intf; /* usb interface */
-	struct mutex mutex;			/* mutex for usb operations */
+	struct mutex io_mutex;		/* mutex for usb operations */
 
 	struct usb_endpoint_descriptor *bulk_in;  /* usb endpoint bulk in */
 	struct usb_endpoint_descriptor *bulk_out; /* usb endpoint bulk out */
@@ -118,7 +120,6 @@ struct ch347_device
 	spinlock_t irq_lock;
 };
 
-#pragma pack()
 
 int ch347_usb_xfer(struct ch347_device *dev, int tx_len, int rx_len, int timeout);
 int ch347_gpio_probe(struct ch347_device *ch347_dev);

@@ -19,19 +19,19 @@ int ch347_usb_xfer(struct ch347_device *dev, int tx_len, int rx_len, int timeout
 {
     int retval = 0;
     int actual_length;
-    int i = 0;
 
     dev_dbg(&dev->intf->dev, "tx_len: %d, rx_len: %d, timeout: %d", tx_len, rx_len, timeout);
 
     if (tx_len > 0)
     {
 #ifdef DEBUG
-        dev_dbg(&dev->intf->dev, "tx_len: %d, tx_buf: ", tx_len);
+        uint8_t buf[512] = {0};
+        int i = 0;
         for (i = 0; i < tx_len; i++)
         {
-            printk("%02x ", dev->bulk_out_buffer[i]);
+            snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "%02x ", dev->bulk_out_buffer[i]);
         }
-        printk("\r\n");
+        dev_dbg(&dev->intf->dev, "tx: %s", buf);
 #endif
         retval = usb_bulk_msg(dev->usb_dev, usb_sndbulkpipe(dev->usb_dev, dev->bulk_out->bEndpointAddress),
                               dev->bulk_out_buffer, tx_len, &actual_length, timeout);
@@ -53,6 +53,16 @@ int ch347_usb_xfer(struct ch347_device *dev, int tx_len, int rx_len, int timeout
         memset(dev->bulk_in_buffer, 0, rx_len);
         retval = usb_bulk_msg(dev->usb_dev, usb_rcvbulkpipe(dev->usb_dev, dev->bulk_in->bEndpointAddress),
                               dev->bulk_in_buffer, rx_len, &actual_length, timeout);
+#ifdef DEBUG
+        uint8_t buf[512] = {0};
+        int i = 0;
+        for (i = 0; i < actual_length; i++)
+        {
+            snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "%02x ", dev->bulk_in_buffer[i]);
+        }
+        dev_dbg(&dev->intf->dev, "rx: %s", buf);
+#endif
+
         if (retval)
         {
             dev_err(&dev->intf->dev, "usb_bulk_msg() failed: %d", retval);
@@ -160,9 +170,10 @@ static int ch347_usb_probe(struct usb_interface *interface, const struct usb_dev
         retval = -ENODEV;
         goto error;
     }
+
     /* save the pointer to the new ch347_device in USB interface device data */
     usb_set_intfdata(interface, ch347_dev);
-    mutex_init(&ch347_dev->mutex);
+    mutex_init(&ch347_dev->io_mutex);
     ch347_dev->usb_id = ida_simple_get(&ch347_devid_ida, 0, 0, GFP_KERNEL);
     if (ch347_dev->usb_id < 0)
     {

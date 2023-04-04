@@ -22,7 +22,7 @@ static int ch347_gpio_regs_get(struct gpio_chip *gpio)
     struct ch347_device *dev = gpiochip_get_data(gpio);
     int ret;
 
-    mutex_lock(&dev->mutex);
+    mutex_lock(&dev->io_mutex);
 
     memset(dev->bulk_out_buffer, 0, CH347_CMD_GPIO_COUNT + CH347_CMD_GPIO_HEADER_LEN);
 
@@ -43,7 +43,7 @@ static int ch347_gpio_regs_get(struct gpio_chip *gpio)
             dev->gpio_regs.pin[4].reg, dev->gpio_regs.pin[5].reg, dev->gpio_regs.pin[6].reg, dev->gpio_regs.pin[7].reg);
 
 error:
-    mutex_unlock(&dev->mutex);
+    mutex_unlock(&dev->io_mutex);
     return ret;
 }
 
@@ -52,7 +52,7 @@ static int ch347_gpio_regs_set(struct gpio_chip *gpio)
     struct ch347_device *dev = gpiochip_get_data(gpio);
     int ret;
 
-    mutex_lock(&dev->mutex);
+    mutex_lock(&dev->io_mutex);
 
     memset(dev->bulk_out_buffer, 0, CH347_CMD_GPIO_COUNT + CH347_CMD_GPIO_HEADER_LEN);
 
@@ -75,7 +75,7 @@ static int ch347_gpio_regs_set(struct gpio_chip *gpio)
             dev->gpio_regs.pin[4].reg, dev->gpio_regs.pin[5].reg, dev->gpio_regs.pin[6].reg, dev->gpio_regs.pin[7].reg);
 
 error:
-    mutex_unlock(&dev->mutex);
+    mutex_unlock(&dev->io_mutex);
     return ret;
 }
 
@@ -154,8 +154,7 @@ int ch347_gpio_probe(struct ch347_device *dev)
     struct gpio_chip *gpio;
     struct gpio_irq_chip *gpio_irq;
     int ret;
-    int i;
-
+    
     gpio = devm_kzalloc(&dev->intf->dev, sizeof(*gpio), GFP_KERNEL);
     if (!gpio)
     {
