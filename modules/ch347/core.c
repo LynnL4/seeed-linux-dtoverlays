@@ -181,36 +181,36 @@ static int ch347_usb_probe(struct usb_interface *interface, const struct usb_dev
         goto error;
     }
     /* register gpio device */
-    // retval = ch347_gpio_probe(ch347_dev);
+    retval = ch347_gpio_probe(ch347_dev);
+    if (retval < 0)
+    {
+        dev_dbg(&interface->dev, "ch347_gpio_probe failed");
+        goto error;
+    }
+    // /* register i2c device */
+    // retval = ch347_i2c_probe(ch347_dev);
     // if (retval < 0)
     // {
-    //     dev_dbg(&interface->dev, "ch347_gpio_probe failed");
+    //     dev_dbg(&interface->dev, "ch347_i2c_probe failed");
     //     goto error;
     // }
-    /* register i2c device */
-    retval = ch347_i2c_probe(ch347_dev);
-    if (retval < 0)
-    {
-        dev_dbg(&interface->dev, "ch347_i2c_probe failed");
-        goto error;
-    }
-
-    retval = ch347_spi_probe(ch347_dev);
-    if (retval < 0)
-    {
-        dev_dbg(&interface->dev, "ch347_spi_probe failed");
-        goto error;
-    }
+    // /* register spi device */
+    // retval = ch347_spi_probe(ch347_dev);
+    // if (retval < 0)
+    // {
+    //     dev_dbg(&interface->dev, "ch347_spi_probe failed");
+    //     goto error;
+    // }
 
     /* let the user know what node this device is now attached to */
-    dev_info(&interface->dev, "USB CH347 device now attached to ch347:%d", interface->minor);
+    dev_info(&interface->dev, "USB to SPI/I2C/GPIO device now attached to ch347-%d", ch347_dev->id);
 
     return 0;
 
 error:
-    // ch347_gpio_remove(ch347_dev);
-    ch347_spi_remove(ch347_dev);
-    ch347_i2c_remove(ch347_dev);
+    // ch347_spi_remove(ch347_dev);
+    // ch347_i2c_remove(ch347_dev);
+    ch347_gpio_remove(ch347_dev);
     if (ch347_dev->bulk_in_buffer)
         kfree(ch347_dev->bulk_in_buffer);
     if (ch347_dev->bulk_out_buffer)
@@ -225,9 +225,9 @@ static void ch341_usb_disconnect(struct usb_interface *usb_if)
 {
     struct ch347_device *dev = usb_get_intfdata(usb_if);
 
-    // ch347_gpio_remove(dev);
-    ch347_spi_remove(dev);
-    ch347_i2c_remove(dev);
+    // ch347_spi_remove(dev);
+    // ch347_i2c_remove(dev);
+    ch347_gpio_remove(dev);
 
     usb_set_intfdata(usb_if, NULL);
     usb_put_dev(dev->usb_dev);

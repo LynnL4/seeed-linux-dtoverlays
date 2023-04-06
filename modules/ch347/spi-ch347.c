@@ -26,7 +26,7 @@ static struct spi_board_info ch347_spi_device_template = {
 static int ch347_spi_get_cfg(struct ch347_device *dev)
 {
     int retval;
-    int offset;
+    u8 offset;
 
     mutex_lock(&dev->io_mutex);
 
@@ -55,9 +55,9 @@ done:
 static int ch347_spi_set_cfg(struct ch347_device *dev)
 {
     int retval;
-    int offset;
+    u8 offset;
     mutex_lock(&dev->io_mutex);
-
+    offset = 0;
     dev->bulk_out_buffer[offset++] = CH347_CMD_SPI_CONGIG_W;
     dev->bulk_out_buffer[offset++] = (u8)(sizeof(dev->spi_reg) & 0xFF);
     dev->bulk_out_buffer[offset++] = (u8)((sizeof(dev->spi_reg) >> 8) & 0xFF);
@@ -83,6 +83,53 @@ static int ch347_spi_set_cfg(struct ch347_device *dev)
     {
         dev_dbg(&dev->intf->dev, "SPI config set failed.");
         retval = -EIO;
+        goto done;
+    }
+
+done:
+    mutex_unlock(&dev->io_mutex);
+    return retval;
+}
+
+static int ch347_spi_set_cs(struct spi_device *spi, bool active)
+{
+    struct spi_master *master = spi->master;
+    struct ch347_device *dev = ch347_spi_maser_to_dev(master);
+    int retval;
+    u8 offset;
+    u8 i;
+
+    mutex_lock(&dev->io_mutex);
+
+    offset = 0;
+
+    dev->bulk_out_buffer[offset++] = CH347_CMD_SPI_CS_W;
+
+    // length of data
+    dev->bulk_out_buffer[offset++] = (u8)(sizeof(dev->spi_cs_reg)) & 0xFF;
+    dev->bulk_out_buffer[offset++] = (u8)(sizeof(dev->spi_cs_reg) >> 8) & 0xFF;
+
+    for (i = 0; i < dev->spi_master->num_chipselect; i++)
+    {
+        dev->spi_cs_reg[i].ctrl &= ~CH347_SPI_CS_CTRL_ENABLE_BIT_MASK;
+        dev->spi_cs_reg[i].ctrl |= CH347_SPI_CS_CTRL_ACTIVE_BIT_MASK;
+    }
+
+    dev->spi_cs_reg[spi->chip_select].ctrl |= CH347_SPI_CS_CTRL_ENABLE_BIT_MASK;
+    if (active)
+    {
+        dev->spi_cs_reg[spi->chip_select].ctrl &= ~CH347_SPI_CS_CTRL_ACTIVE_BIT_MASK;
+    }
+
+    memcpy(dev->bulk_out_buffer + offset, &dev->spi_cs_reg, sizeof(dev->spi_cs_reg));
+
+    offset += sizeof(dev->spi_cs_reg);
+
+    retval = ch347_usb_xfer(dev, offset, 0, 1000);
+
+    if (retval < 0)
+    {
+        dev_dbg(&dev->intf->dev, "SPI CS set failed.");
         goto done;
     }
 
@@ -184,7 +231,141 @@ static int ch347_spi_setup(struct spi_device *spi)
         goto done;
     }
 
+    // setup cs
+    // TODO get cs config from device tree
+    dev->spi_cs_reg[spi->chip_select].ctrl = 0x00;
+    dev->spi_cs_reg[spi->chip_select].active_delay = 0x00;
+    dev->spi_cs_reg[spi->chip_select].deactive_delay = 0x00;
+
+    retval = ch347_spi_set_cs(spi, false); // set cs inactive
+
 done:
+    return retval;
+}
+
+static int ch347_spi_xfer(struct ch347_device *dev, struct spi_device *spi, const u8 *tx, u8 *rx, int len)
+{
+    int retval;
+    int xfer_len;
+    int avail_len;
+    int offset;
+
+    if (!tx && !rx)
+    {
+        dev_err(&dev->intf->dev, "SPI transfer failed: tx and rx are NULL.");
+        retval = -EINVAL;
+        goto done;
+    }
+
+    mutex_lock(&dev->io_mutex);
+
+    if (tx && rx) // spi transmit and receive
+    {
+        xfer_len = 0;
+        avail_len = len;
+        while (avail_len)
+        {
+            offset = 0;
+            xfer_len = avail_len > CH347_SPI_XFER_MAX_LENGTH ? CH347_SPI_XFER_MAX_LENGTH : avail_len;
+
+            dev->bulk_out_buffer[offset++] = CH347_CMD_SPI_DATA_RW;
+            dev->bulk_out_buffer[offset++] = (u8)(xfer_len & 0xFF);
+            dev->bulk_out_buffer[offset++] = (u8)((xfer_len >> 8) & 0xFF);
+            memcpy(dev->bulk_out_buffer + offset, tx, xfer_len);
+            offset += xfer_len;
+
+            retval = ch347_usb_xfer(dev, offset, offset, 2000);
+
+            if (retval < 0)
+            {
+                dev_err(&dev->intf->dev, "SPI transfer failed.");
+                goto done;
+            }
+
+            memcpy(rx + avail_len - xfer_len, dev->bulk_in_buffer + CH347_CMD_GPIO_HEADER_LEN, xfer_len);
+
+            tx += xfer_len;
+            rx += xfer_len;
+            avail_len -= xfer_len;
+        }
+    }
+    else if (tx) // spi transmit only
+    {
+        xfer_len = 0;
+        avail_len = len;
+        while (avail_len)
+        {
+            offset = 0;
+            xfer_len = avail_len > CH347_SPI_XFER_MAX_LENGTH ? CH347_SPI_XFER_MAX_LENGTH : avail_len;
+
+            dev->bulk_out_buffer[offset++] = CH347_CMD_SPI_DATA_W;
+            dev->bulk_out_buffer[offset++] = (u8)(xfer_len & 0xFF);
+            dev->bulk_out_buffer[offset++] = (u8)((xfer_len >> 8) & 0xFF);
+            memcpy(dev->bulk_out_buffer + offset, tx, xfer_len);
+            offset += xfer_len;
+
+            retval = ch347_usb_xfer(dev, offset, 0, 2000);
+
+            if (retval < 0)
+            {
+                dev_err(&dev->intf->dev, "SPI transfer failed.");
+                goto done;
+            }
+
+            retval = ch347_usb_xfer(dev, 0, CH347_CMD_GPIO_HEADER_LEN + 1, 2000);
+
+            if (retval < 0 || dev->bulk_in_buffer[CH347_CMD_GPIO_HEADER_LEN] != 0x00)
+            {
+                dev_err(&dev->intf->dev, "SPI transfer failed.");
+                retval = -EIO;
+                goto done;
+            }
+
+            tx += xfer_len;
+            avail_len -= xfer_len;
+        }
+    }
+    else if (rx) // spi receive only
+    {
+        xfer_len = 0;
+        avail_len = len;
+        offset = 0;
+
+        dev->bulk_out_buffer[offset++] = CH347_CMD_SPI_DATA_R;
+        dev->bulk_out_buffer[offset++] = 0x04;
+        dev->bulk_out_buffer[offset++] = 0x00;
+        dev->bulk_out_buffer[offset++] = (u8)(avail_len & 0xFF);
+        dev->bulk_out_buffer[offset++] = (u8)((avail_len >> 8) & 0xFF);
+        dev->bulk_out_buffer[offset++] = (u8)((avail_len >> 16) & 0xFF);
+        dev->bulk_out_buffer[offset++] = (u8)((avail_len >> 24) & 0xFF);
+
+        retval = ch347_usb_xfer(dev, offset, 0, 2000);
+        if (retval < 0)
+        {
+            dev_err(&dev->intf->dev, "SPI transfer failed.");
+            goto done;
+        }
+
+        while (avail_len)
+        {
+            xfer_len = avail_len > CH347_SPI_XFER_MAX_LENGTH ? CH347_SPI_XFER_MAX_LENGTH : avail_len;
+
+            retval = ch347_usb_xfer(dev, 0, CH347_CMD_GPIO_HEADER_LEN + xfer_len, 2000);
+
+            if (retval < 0 || dev->bulk_in_buffer[0] != CH347_CMD_SPI_DATA_R)
+            {
+                dev_err(&dev->intf->dev, "SPI transfer failed.");
+                goto done;
+            }
+
+            memcpy(rx + len - avail_len, dev->bulk_in_buffer + CH347_CMD_GPIO_HEADER_LEN, xfer_len);
+
+            avail_len -= xfer_len;
+        }
+    }
+
+done:
+    mutex_unlock(&dev->io_mutex);
     return retval;
 }
 
@@ -192,9 +373,54 @@ static int ch347_spi_transfer_one_message(struct spi_master *master,
                                           struct spi_message *msg)
 {
     struct ch347_device *dev = ch347_spi_maser_to_dev(master);
-    struct spi_transfer *t;
-    int ret;
+    struct spi_transfer *xfer;
+    bool cs_change = true;
+    int retval;
 
+    ch347_spi_set_cs(msg->spi, true);
+
+    list_for_each_entry(xfer, &msg->transfers, transfer_list)
+    {
+
+        dev_dbg(&dev->intf->dev, "xfer: len=%d, cs_change=%d, delay_usecs=%d, speed_hz=%d",
+                xfer->len, xfer->cs_change, xfer->delay_usecs, xfer->speed_hz);
+
+        reinit_completion(&master->xfer_completion);
+
+        retval = ch347_spi_xfer(dev, msg->spi, xfer->tx_buf, xfer->rx_buf, xfer->len);
+        if (retval < 0)
+        {
+            dev_err(&dev->intf->dev, "SPI transfer failed.");
+            goto done;
+        }
+
+        if (msg->status != -EINPROGRESS)
+            goto done;
+
+        if (xfer->delay_usecs)
+            udelay(xfer->delay_usecs);
+
+        if (xfer->cs_change)
+        {
+            if (list_is_last(&xfer->transfer_list, &msg->transfers))
+            {
+                cs_change = false;
+            }
+            else
+            {
+                ch347_spi_set_cs(msg->spi, false);
+                udelay(10);
+                ch347_spi_set_cs(msg->spi, true);
+            }
+        }
+    }
+
+done:
+    if (retval != 0 || cs_change)
+        ch347_spi_set_cs(msg->spi, false);
+    if (msg->status == -EINPROGRESS)
+        msg->status = retval;
+    spi_finalize_current_message(master);
     return 0;
 }
 
@@ -249,7 +475,7 @@ int ch347_spi_probe(struct ch347_device *dev)
     ch347_spi_maser_to_dev(master) = dev;
 
     master->bus_num = -1;
-    master->num_chipselect = 2;
+    master->num_chipselect = CH347_SPI_MAX_NUM_DEVICES;
     master->mode_bits = SPI_MODE_3 | SPI_LSB_FIRST | SPI_CS_HIGH;
     master->bits_per_word_mask = SPI_BPW_MASK(8);
     master->transfer_one_message = ch347_spi_transfer_one_message;

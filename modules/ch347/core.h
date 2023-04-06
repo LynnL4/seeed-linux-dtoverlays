@@ -44,6 +44,13 @@
 #define CH347_CMD_GPIO_COUNT 0x08
 #define CH347_CMD_GPIO_END 0x00
 
+#define CH347_GPIO_ENABLE_BIT_MASK 0xC0
+#define CH347_GPIO_DIRECTION_BIT_MASK 0x20
+#define CH347_GPIO_MODE_BIT_MASK 0x10
+#define CH347_GPIO_VALUE_BIT_MASK 0x08
+#define CH347_GPIO_IRQ_ENABLE_BIT_MASK 0x04
+#define CH347_GPIO_IRQ_TYPE_BIT_MASK 0x03
+
 /********************************************************/
 #define CH347_I2C_LOW_SPEED 0	   /* low rate 20KHz */
 #define CH347_I2C_STANDARD_SPEED 1 /* standard rate 100KHz */
@@ -63,6 +70,7 @@
 
 /********************************************************/
 #define CH347_SPI_MAX_NUM_DEVICES 2
+#define CH347_SPI_XFER_MAX_LENGTH 0x1FB
 
 #define CH347_SPI_MAX_FREQ 60e6
 #define CH347_SPI_MIN_FREQ 468750
@@ -73,15 +81,10 @@
 #define CH347_CMD_SPI_STREAM 0xAB
 #define CH347_CMD_SPI_CONGIG_W 0xC0
 #define CH347_CMD_SPI_CONFIG_R 0xCA
-#define CH347_CMD_SPI_CTRL 0xC1
-#define CH347_CMD_SPI_RW 0xC2
-#define CH347_CMD_SPI_BURST_R 0xC3
-#define CH347_CMD_SPI_BURST_W 0xC4
-
-#define CH347_SPI_SET_CS 0
-#define CH347_SPI_CLR_CS 1
-#define CH347_SPI_CS_ACTIVE 0x00
-#define CH347_SPI_CS_DEACTIVE 0x01
+#define CH347_CMD_SPI_CS_W 0xC1
+#define CH347_CMD_SPI_DATA_RW 0xC2
+#define CH347_CMD_SPI_DATA_R 0xC3
+#define CH347_CMD_SPI_DATA_W 0xC4
 
 /* SPI_Clock_Polarity */
 #define CH347_SPI_CPOL_LOW ((u16)0x0000)
@@ -91,6 +94,11 @@
 #define CH347_SPI_CPHA_1EDGE ((u16)0x0000)
 #define CH347_SPI_CPHA_2EDGE ((u16)0x0001)
 
+/* SPI CS BIT MASK*/
+#define CH347_SPI_CS_CTRL_ENABLE_BIT_MASK ((u8)0x80)
+#define CH347_SPI_CS_CTRL_ACTIVE_BIT_MASK ((u8)0x40)
+#define CH347_SPI_CS_CTRL_KEEP_BIT_MASK ((u8)0x20)
+
 #ifndef USB_DEVICE_INTERFACE_NUMBER
 #define USB_DEVICE_INTERFACE_NUMBER(vend, prod, num)                                                \
 	.match_flags = USB_DEVICE_ID_MATCH_DEVICE | USB_DEVICE_ID_MATCH_INT_NUMBER, .idVendor = (vend), \
@@ -99,21 +107,17 @@
 
 #pragma pack(1)
 
-struct ch347_gpio_regs
+struct ch347_gpio_reg
 {
-	union gpio_pin_reg
-	{
-		u8 reg;
-		struct
-		{
-			u8 enable : 2;
-			u8 direction : 1;
-			u8 mode : 1;
-			u8 value : 1;
-			u8 irq_enable : 1;
-			u8 irq_type : 2;
-		} bits;
-	} pin[CH347_GPIO_NUM_PINS];
+	u8 pin[CH347_GPIO_NUM_PINS]; /* Specifies the GPIO pin control mode. */
+};
+
+struct ch347_spi_cs_reg
+{
+
+	u8 ctrl;			/* Specifies the SPI chip select pin control mode. */
+	u16 active_delay;	/* Specifies the delay time between the CS active and the first clock edge in unit of us. */
+	u16 deactive_delay; /* Specifies the delay time between the last clock edge and the CS deactive in unit of us. */
 };
 
 struct ch347_spi_reg
@@ -165,9 +169,9 @@ struct ch347_device
 	struct urb *intr_urb;
 
 	/* gpio */
-	struct ch347_gpio_regs gpio_regs;
-	struct gpio_chip *gpio;
-	struct gpio_irq_chip *gpio_irq;
+	struct ch347_gpio_reg gpio_reg;
+	struct gpio_chip gpio;
+	struct gpio_irq_chip gpio_irq;
 
 	/* i2c */
 	struct i2c_adapter *adapter;
@@ -178,13 +182,14 @@ struct ch347_device
 	struct spi_master *spi_master;
 	struct spi_device *spi_dev[CH347_SPI_MAX_NUM_DEVICES];
 	struct spi_board_info spi_board_info[CH347_SPI_MAX_NUM_DEVICES];
+	struct ch347_spi_cs_reg spi_cs_reg[CH347_SPI_MAX_NUM_DEVICES];
 
 	spinlock_t irq_lock;
 };
 
 int ch347_usb_xfer(struct ch347_device *dev, int tx_len, int rx_len, int timeout);
 int ch347_gpio_probe(struct ch347_device *ch347_dev);
-int ch347_gpio_remove(struct ch347_device *ch347_dev);
+void ch347_gpio_remove(struct ch347_device *ch347_dev);
 int ch347_i2c_probe(struct ch347_device *ch347_dev);
 void ch347_i2c_remove(struct ch347_device *dev);
 int ch347_spi_probe(struct ch347_device *ch347_dev);
