@@ -174,31 +174,43 @@ static int ch347_usb_probe(struct usb_interface *interface, const struct usb_dev
     /* save the pointer to the new ch347_device in USB interface device data */
     usb_set_intfdata(interface, ch347_dev);
     mutex_init(&ch347_dev->io_mutex);
-    ch347_dev->usb_id = ida_simple_get(&ch347_devid_ida, 0, 0, GFP_KERNEL);
-    if (ch347_dev->usb_id < 0)
+    ch347_dev->id = ida_simple_get(&ch347_devid_ida, 0, 0, GFP_KERNEL);
+    if (ch347_dev->id < 0)
     {
-        retval = ch347_dev->usb_id;
+        retval = ch347_dev->id;
         goto error;
     }
     /* register gpio device */
-    // ch347_dev->gpio = NULL;
-    // ch347_dev->gpio_irq = NULL;
     // retval = ch347_gpio_probe(ch347_dev);
     // if (retval < 0)
+    // {
+    //     dev_dbg(&interface->dev, "ch347_gpio_probe failed");
     //     goto error;
+    // }
+    /* register i2c device */
     retval = ch347_i2c_probe(ch347_dev);
     if (retval < 0)
     {
         dev_dbg(&interface->dev, "ch347_i2c_probe failed");
         goto error;
     }
+
+    retval = ch347_spi_probe(ch347_dev);
+    if (retval < 0)
+    {
+        dev_dbg(&interface->dev, "ch347_spi_probe failed");
+        goto error;
+    }
+
     /* let the user know what node this device is now attached to */
-    dev_info(&interface->dev, "USB CH347 device now attached to ch347-%d", interface->minor);
+    dev_info(&interface->dev, "USB CH347 device now attached to ch347:%d", interface->minor);
 
     return 0;
 
 error:
     // ch347_gpio_remove(ch347_dev);
+    ch347_spi_remove(ch347_dev);
+    ch347_i2c_remove(ch347_dev);
     if (ch347_dev->bulk_in_buffer)
         kfree(ch347_dev->bulk_in_buffer);
     if (ch347_dev->bulk_out_buffer)
@@ -213,6 +225,8 @@ static void ch341_usb_disconnect(struct usb_interface *usb_if)
 {
     struct ch347_device *dev = usb_get_intfdata(usb_if);
 
+    // ch347_gpio_remove(dev);
+    ch347_spi_remove(dev);
     ch347_i2c_remove(dev);
 
     usb_set_intfdata(usb_if, NULL);

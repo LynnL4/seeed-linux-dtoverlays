@@ -13,10 +13,6 @@
 
 #include "core.h"
 
-#include <linux/kernel.h>
-#include <linux/module.h>
-#include <linux/usb.h>
-
 static int ch347_gpio_regs_get(struct gpio_chip *gpio)
 {
     struct ch347_device *dev = gpiochip_get_data(gpio);
@@ -38,7 +34,7 @@ static int ch347_gpio_regs_get(struct gpio_chip *gpio)
 
     memcpy(&dev->gpio_regs, dev->bulk_in_buffer + CH347_CMD_GPIO_HEADER_LEN, CH347_CMD_GPIO_COUNT);
 
-    dev_dbg(&dev->intf->dev, "gpio regs: %02X %02X %02X %02X %02X %02X %02X %02X",
+    dev_dbg(&dev->intf->dev, "gpio regs get: %02X %02X %02X %02X %02X %02X %02X %02X",
             dev->gpio_regs.pin[0].reg, dev->gpio_regs.pin[1].reg, dev->gpio_regs.pin[2].reg, dev->gpio_regs.pin[3].reg,
             dev->gpio_regs.pin[4].reg, dev->gpio_regs.pin[5].reg, dev->gpio_regs.pin[6].reg, dev->gpio_regs.pin[7].reg);
 
@@ -62,6 +58,10 @@ static int ch347_gpio_regs_set(struct gpio_chip *gpio)
 
     memcpy(dev->bulk_out_buffer + CH347_CMD_GPIO_HEADER_LEN, &dev->gpio_regs, CH347_CMD_GPIO_COUNT);
 
+        dev_dbg(&dev->intf->dev, "gpio regs set: %02X %02X %02X %02X %02X %02X %02X %02X",
+            dev->gpio_regs.pin[0].reg, dev->gpio_regs.pin[1].reg, dev->gpio_regs.pin[2].reg, dev->gpio_regs.pin[3].reg,
+            dev->gpio_regs.pin[4].reg, dev->gpio_regs.pin[5].reg, dev->gpio_regs.pin[6].reg, dev->gpio_regs.pin[7].reg);
+
     ret = ch347_usb_xfer(dev, CH347_CMD_GPIO_COUNT + CH347_CMD_GPIO_HEADER_LEN, CH347_CMD_GPIO_COUNT + CH347_CMD_GPIO_HEADER_LEN, 1000);
     if (ret < 0)
     {
@@ -69,10 +69,6 @@ static int ch347_gpio_regs_set(struct gpio_chip *gpio)
     }
 
     memcpy(&dev->gpio_regs, dev->bulk_in_buffer + CH347_CMD_GPIO_HEADER_LEN, CH347_CMD_GPIO_COUNT);
-
-    dev_dbg(&dev->intf->dev, "gpio regs: %02X %02X %02X %02X %02X %02X %02X %02X",
-            dev->gpio_regs.pin[0].reg, dev->gpio_regs.pin[1].reg, dev->gpio_regs.pin[2].reg, dev->gpio_regs.pin[3].reg,
-            dev->gpio_regs.pin[4].reg, dev->gpio_regs.pin[5].reg, dev->gpio_regs.pin[6].reg, dev->gpio_regs.pin[7].reg);
 
 error:
     mutex_unlock(&dev->io_mutex);
@@ -82,25 +78,11 @@ error:
 static int ch347_gpio_get_direction(struct gpio_chip *gpio, unsigned offset)
 {
     struct ch347_device *dev = gpiochip_get_data(gpio);
-    int ret;
-    u8 index;
+    u8 index = offset;
 
-    memset(dev->bulk_out_buffer, 0, CH347_CMD_GPIO_COUNT + CH347_CMD_GPIO_HEADER_LEN);
+    ch347_gpio_regs_get(gpio);
 
-    dev->bulk_out_buffer[0] = CH347_CMD_GPIO_START;
-    dev->bulk_out_buffer[1] = CH347_CMD_GPIO_COUNT;
-    dev->bulk_out_buffer[2] = CH347_CMD_GPIO_END;
-
-    ret = ch347_usb_xfer(dev, CH347_CMD_GPIO_COUNT + CH347_CMD_GPIO_HEADER_LEN, CH347_CMD_GPIO_COUNT + CH347_CMD_GPIO_HEADER_LEN, 1000);
-
-    memcpy(&dev->gpio_regs, dev->bulk_in_buffer + CH347_CMD_GPIO_HEADER_LEN, CH347_CMD_GPIO_COUNT);
-
-    if (ret < 0)
-    {
-        return ret;
-    }
-
-    return dev->bulk_in_buffer[CH347_CMD_GPIO_HEADER_LEN + index] & 0x80 ? GPIO_LINE_DIRECTION_OUT : GPIO_LINE_DIRECTION_IN;
+    return dev->gpio_regs.pin[index].bits.direction;
 }
 
 static int ch347_gpio_direction_input(struct gpio_chip *gpio, unsigned offset)
@@ -153,8 +135,9 @@ int ch347_gpio_probe(struct ch347_device *dev)
 {
     struct gpio_chip *gpio;
     struct gpio_irq_chip *gpio_irq;
+    int i;
     int ret;
-    
+
     gpio = devm_kzalloc(&dev->intf->dev, sizeof(*gpio), GFP_KERNEL);
     if (!gpio)
     {
@@ -203,13 +186,13 @@ int ch347_gpio_probe(struct ch347_device *dev)
         goto error;
     }
 
-    // for (i = 0; i < gpio->ngpio; i++)
-    // {
-    //     dev->gpio_regs.pin[i].bits.enable = 1;
-    //     dev->gpio_regs.pin[i].bits.direction = 0;
-    // }
+    for (i = 0; i < gpio->ngpio; i++)
+    {
+        dev->gpio_regs.pin[i].bits.enable = 1;
+        dev->gpio_regs.pin[i].bits.direction = 0;
+    }
 
-    // ret = ch347_gpio_regs_set(gpio);
+    ret = ch347_gpio_regs_set(gpio);
 
     if (ret < 0)
     {

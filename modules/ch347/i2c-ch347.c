@@ -41,7 +41,7 @@ int ch347_i2c_read(struct ch347_device *dev, u8 addr, u8 *buf, int len)
         }
 
         dev->bulk_out_buffer[offset++] = CH347_CMD_I2C_STREAM;
-        // first frame
+        // first frame add start condition and address
         if (first_frame)
         {
             dev->bulk_out_buffer[offset++] = CH347_CMD_I2C_STM_STA;
@@ -54,7 +54,7 @@ int ch347_i2c_read(struct ch347_device *dev, u8 addr, u8 *buf, int len)
         {
             dev->bulk_out_buffer[offset++] = CH347_CMD_I2C_STM_IN | (xfer_len - first_frame);
         }
-        // last frame
+        // last frame add stop condition and read end
         if (avail_len == 0)
         {
             dev->bulk_out_buffer[offset++] = CH347_CMD_I2C_STM_IN;
@@ -85,7 +85,7 @@ int ch347_i2c_read(struct ch347_device *dev, u8 addr, u8 *buf, int len)
 
         memcpy(buf + (len - avail_len - xfer_len), dev->bulk_in_buffer + first_frame, xfer_len);
 
-        // first frame is seny
+        // first frame is sent
         if (first_frame)
         {
             first_frame = 0;
@@ -125,7 +125,7 @@ int ch347_i2c_write(struct ch347_device *dev, u8 addr, u8 *buf, int len)
         }
 
         dev->bulk_out_buffer[offset++] = CH347_CMD_I2C_STREAM;
-        // first frame
+        // first frame add start condition and address
         if (first_frame)
         {
             dev->bulk_out_buffer[offset++] = CH347_CMD_I2C_STM_STA;
@@ -141,7 +141,7 @@ int ch347_i2c_write(struct ch347_device *dev, u8 addr, u8 *buf, int len)
         memcpy(dev->bulk_out_buffer + offset, buf + (len - avail_len), xfer_len);
         offset += xfer_len;
         avail_len -= xfer_len;
-        // last frame
+        // last frame add stop condition 
         if (avail_len == 0)
         {
             dev->bulk_out_buffer[offset++] = CH347_CMD_I2C_STM_STO;
